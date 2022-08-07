@@ -26,8 +26,13 @@ func (b *ByteBuffer) Next(n int) (sub ByteBuffer, ok bool) {
 }
 
 // Append adds bs to the end of b.
-func (b *ByteBuffer) Append(bs []byte) {
+func (b *ByteBuffer) Append(bs ...byte) {
 	*b = append(*b, bs...)
+}
+
+// AppendString adds the bytes of s to the end of b.
+func (b *ByteBuffer) AppendString(s string) {
+	*b = append(*b, s...)
 }
 
 // Extend adds n uninitialized bytes to b and returns that range as a slice.

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"github.com/iambob314/vol"
 	"github.com/spf13/cobra"
-	"io/ioutil"
 	"log"
 	"os"
 	"path"
@@ -27,7 +26,7 @@ var extractCmd = &cobra.Command{
 		}
 
 		var v vol.File
-		if data, err := ioutil.ReadFile(fn); err != nil {
+		if data, err := os.ReadFile(fn); err != nil {
 			return fmt.Errorf("could not read file %s: %w", fn, err)
 		} else if err := v.Parse(data); err != nil {
 			return fmt.Errorf("could not parse file %s: %w", fn, err)
@@ -57,7 +56,7 @@ var extractCmd = &cobra.Command{
 			}
 
 			fnFull := path.Join(outdir, fnDir, fnBase)
-			if err := ioutil.WriteFile(fnFull, item.Payload, 0666); err != nil {
+			if err := os.WriteFile(fnFull, item.Payload, 0666); err != nil {
 				return fmt.Errorf("could not create file %s: %w", fnFull, err)
 			}
 		}
@@ -66,9 +65,7 @@ var extractCmd = &cobra.Command{
 	},
 }
 
-var (
-	extractStripPaths bool
-)
+var extractStripPaths bool
 
 func init() {
 	extractCmd.Flags().BoolVar(&extractStripPaths, "strip-paths", false, "ignore file paths in the vol; extract with no subdirectories")

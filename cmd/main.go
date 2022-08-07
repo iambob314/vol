@@ -3,8 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
-
 	"github.com/spf13/cobra"
 )
 
@@ -26,10 +24,10 @@ var rootCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(infoCmd)
 	rootCmd.AddCommand(extractCmd)
+	rootCmd.AddCommand(makeCmd)
+	rootCmd.AddCommand(dumpCmd)
 }
 
 func main() {
-	if err := rootCmd.ExecuteContext(context.Background()); err != nil {
-		log.Fatal(err)
-	}
+	rootCmd.ExecuteContext(context.Background())
 }

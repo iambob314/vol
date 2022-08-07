@@ -36,38 +36,47 @@ type Item struct {
 }
 
 func (v *File) Parse(data []byte) error {
-	var header header
-	var footer footer
+	var (
+		hdrPayload headerAndPayload
+		fnFooter   filenameFooter
+		itFooter   itemFooter
+	)
 
 	parseBuf := ByteBuffer(data)
-	if err := header.Parse(&parseBuf); err != nil {
+	if err := hdrPayload.Parse(&parseBuf); err != nil {
 		return err
-	} else if err := footer.Parse(header.IsPVOL, &parseBuf); err != nil {
+	} else if err := fnFooter.Parse(hdrPayload.IsPVOL, &parseBuf); err != nil {
+		return err
+	} else if err := itFooter.Parse(&parseBuf); err != nil {
 		return err
 	}
 
-	pstart, pend := header.PayloadOffset, header.PayloadOffset+header.PayloadLen
-	for i, itemHdr := range footer.Items {
-		filename := footer.Filenames[i]
+	if len(fnFooter.Filenames) != len(itFooter.Items) {
+		return fmt.Errorf("filenameFooter contains different number of filenames than itemFooter's number of item headers (%d vs. %d)", len(fnFooter.Filenames), len(itFooter.Items))
+	}
+
+	pstart, pend := hdrPayload.HeaderLen(), hdrPayload.HeaderLen()+uint32(len(hdrPayload.Payload))
+	for i, itemHdr := range itFooter.Items {
+		filename := fnFooter.Filenames[i]
 
 		start, end := itemHdr.Offset, itemHdr.Offset+blockHeaderLen+itemHdr.PayloadLen
 		if start < pstart || end > pend {
 			return fmt.Errorf("item %d range [%d, %d) out of bounds in payload [%d, %d)", i, start, end, pstart, pend)
 		}
 
-		// Stupid special case: for zero-length file, the itemHeader reports 0 length, but the header on the Item itself
-		// reports 1 length, so we could crash to parse it. In this case, just abort early with an empty Item, don't
-		// check the payload.
-		if itemHdr.PayloadLen == 0 {
-			v.Items = append(v.Items, Item{Filename: filename, Compression: None, Payload: nil})
-			continue
-		}
-		itemBuf := ByteBuffer(data[start:end])
+		item := Item{Filename: filename, Compression: None}
 
-		var item Item
-		if err := item.Parse(filename, itemHdr, &itemBuf); err != nil {
-			return fmt.Errorf("parsing item %d (%s) at range [%d, %d): %w", i, filename, start, end, err)
+		// Stupid special case: for zero-length item, itemHeader reports length 0, but the header on the Item itself
+		// reports length 1, so we may crash to parse it. So for length 0, just append an empty Item, don't read payload.
+		if itemHdr.PayloadLen > 0 {
+			itemBuf := ByteBuffer(data[start:end])
+			var pitem payloadItem
+			if err := pitem.Parse(&itemBuf); err != nil {
+				return fmt.Errorf("parsing item %d (%s) at range [%d, %d): %w", i, filename, start, end, err)
+			}
+			item.Payload = pitem.Payload
 		}
+
 		v.Items = append(v.Items, item)
 	}
 
@@ -90,18 +99,22 @@ func (v *Item) Parse(filename string, hdr itemHeader, buf *ByteBuffer) error {
 func (v *Item) Decompress() {
 	switch v.Compression {
 	case None:
+	default:
+		panic(fmt.Errorf("unsupported compression type %s", v.Compression))
 	}
 }
 
-type header struct {
-	IsPVOL        bool
-	PayloadOffset uint32 // payload's offset in file
-	PayloadLen    uint32
+type headerAndPayload struct {
+	IsPVOL  bool
+	Payload ByteBuffer
 }
 
-type footer struct {
+type filenameFooter struct {
 	Filenames []string
-	Items     []itemHeader
+}
+
+type itemFooter struct {
+	Items []itemHeader
 }
 
 type itemHeader struct {
@@ -112,34 +125,48 @@ type itemHeader struct {
 	Compression CompressionType
 }
 
-func (v *header) Parse(buf *ByteBuffer) (err error) {
-	var headerAndPayload block
-	if err := headerAndPayload.Parse("payload", "", 0, true, buf); err != nil {
+type payloadItem struct {
+	Payload ByteBuffer
+}
+
+func (v *payloadItem) Parse(buf *ByteBuffer) error {
+	var block block
+	if err := block.Parse("item", magicVBLK, 24, false, buf); err != nil {
 		return err
 	}
 
-	v.PayloadOffset = headerAndPayload.HeaderLen()
-	v.PayloadLen = headerAndPayload.PayloadLen
+	v.Payload = block.Payload
+	return nil
+}
 
-	switch headerAndPayload.HeaderMagic {
+func (v *headerAndPayload) Parse(buf *ByteBuffer) (err error) {
+	var blk block
+	if err := blk.Parse("payload", "", 0, true, buf); err != nil {
+		return err
+	}
+
+	switch blk.HeaderMagic {
 	case magicVOL:
 	case magicPVOL:
 		v.IsPVOL = true
 	default:
-		return fmt.Errorf("unexpected payload header magic: got %s, expected %s or %s", headerAndPayload.HeaderMagic, magicVOL, magicVOLS)
+		return fmt.Errorf("unexpected payload header magic: got %s, expected %s or %s", blk.HeaderMagic, magicVOL, magicVOLS)
 	}
+
+	v.Payload = blk.Payload
 
 	return nil
 }
 
-func (v *footer) Parse(isPVOL bool, buf *ByteBuffer) error {
-	var filenamesBlock, itemsBlock block
+func (v *headerAndPayload) HeaderLen() uint32 { return blockHeaderLen }
 
-	// Parse filenames block
+func (v *filenameFooter) Parse(isPVOL bool, buf *ByteBuffer) error {
 	if !isPVOL {
-		buf.Skip(2 * (2 * 4)) // non-PVOL footer has 2 extra pairs of magic/offset headers (unknown purpose) before the strings section
+		buf.Skip(2 * (2 * 4)) // non-PVOL filenameFooter has 2 extra pairs of magic/offset headers (unknown purpose) before the strings section
 	}
-	if err := filenamesBlock.Parse("footer filenames", magicVOLS, 0, false, buf); err != nil {
+
+	var filenamesBlock block
+	if err := filenamesBlock.Parse("filenameFooter filenames", magicVOLS, 0, false, buf); err != nil {
 		return err
 	}
 	for len(filenamesBlock.Payload) > 0 {
@@ -152,18 +179,21 @@ func (v *footer) Parse(isPVOL bool, buf *ByteBuffer) error {
 		v.Filenames = append(v.Filenames, string(fnBytes[:nulIdx]))
 	}
 
-	// There is sometimes range garbage between the filenames and items blocks; seek forward a limited distance to find
-	// the magic header
-	maxSeek := 8
-	if maxSeek > len(*buf) {
-		maxSeek = len(*buf)
-	}
-	if padding := bytes.Index(*buf, []byte(magicVOLI)); padding > 0 {
+	return nil
+}
+
+func (v *itemFooter) Parse(buf *ByteBuffer) error {
+	// There is padding between the filenames and items footers; seek forward a limited distance to find the magic header
+	const maxSeek = 8
+	if padding := bytes.Index(*buf, []byte(magicVOLI)); padding > maxSeek {
+		return fmt.Errorf("filenameFooter could not find magic %s within %d bytes", magicVOLI, maxSeek)
+	} else if padding > 0 {
 		buf.Skip(padding)
 	}
 
 	// Parse items block
-	if err := itemsBlock.Parse("footer items", magicVOLI, 0, false, buf); err != nil {
+	var itemsBlock block
+	if err := itemsBlock.Parse("filenameFooter items", magicVOLI, 0, false, buf); err != nil {
 		return err
 	}
 	for len(itemsBlock.Payload) > 0 {
@@ -172,9 +202,6 @@ func (v *footer) Parse(isPVOL bool, buf *ByteBuffer) error {
 			return err
 		}
 		v.Items = append(v.Items, item)
-	}
-	if len(v.Filenames) != len(v.Items) {
-		return fmt.Errorf("footer contains different numbers of filenames and item headers (%d vs. %d)", len(v.Filenames), len(v.Items))
 	}
 
 	return nil
