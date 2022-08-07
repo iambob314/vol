@@ -4,14 +4,13 @@ import (
 	"fmt"
 	"github.com/iambob314/vol"
 	"github.com/spf13/cobra"
-	"log"
 	"os"
 	"path/filepath"
 )
 
-var extractCmd = &cobra.Command{
-	Use:  "extract volfile [outdir] [filenames...]",
-	Long: "vol extract unpacks the contents of a .vol file",
+var unpackCmd = &cobra.Command{
+	Use:  "unpack volfile [outdir] [filenames...]",
+	Long: "vol unpack unpacks the contents of a .vol file",
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		fn, outdir := args[0], "."
@@ -38,20 +37,21 @@ var extractCmd = &cobra.Command{
 		}
 
 		for _, item := range v.Items {
-			fn := filepath.Clean(item.Filename)
-			if !fnmatch.Match(fn) {
+			fnInVol := filepath.Clean(item.Filename)
+			if !fnmatch.Match(fnInVol) {
 				continue
 			}
 
 			if item.Compression != vol.None {
-				log.Printf("cannot extract %s; compression %s unsupported\n", item.Filename, item.Compression)
+				fmt.Printf("cannot unpack %s; compression %s unsupported\n", item.Filename, item.Compression)
 				continue
 			}
 
-			if extractStripPaths {
+			fn := fnInVol
+			if unpackStripPaths {
 				fn = filepath.Base(fn)
 				if fn == "." || fn == "/" {
-					log.Println("skipping empty filename")
+					fmt.Println("skipping empty filename")
 					continue
 				}
 			}
@@ -68,14 +68,20 @@ var extractCmd = &cobra.Command{
 			if err := os.WriteFile(fnFull, item.Payload, 0666); err != nil {
 				return fmt.Errorf("could not create file %s: %w", fnFull, err)
 			}
+
+			if fnFull == fnInVol {
+				fmt.Printf("unpacked %s\n", fnFull)
+			} else {
+				fmt.Printf("unpacked %s to %s\n", fnInVol, fnFull)
+			}
 		}
 
 		return nil
 	},
 }
 
-var extractStripPaths bool
+var unpackStripPaths bool
 
 func init() {
-	extractCmd.Flags().BoolVar(&extractStripPaths, "strip-paths", false, "ignore file paths in the vol; extract with no subdirectories")
+	unpackCmd.Flags().BoolVar(&unpackStripPaths, "strip-paths", false, "ignore file paths in the vol; unpack with no subdirectories")
 }

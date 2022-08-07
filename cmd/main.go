@@ -23,8 +23,8 @@ var rootCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(infoCmd)
-	rootCmd.AddCommand(extractCmd)
-	rootCmd.AddCommand(makeCmd)
+	rootCmd.AddCommand(unpackCmd)
+	rootCmd.AddCommand(packCmd)
 	rootCmd.AddCommand(dumpCmd)
 }
 

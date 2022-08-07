@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 )
 
-var makeCmd = &cobra.Command{
-	Use:  "make volfile [file...]",
-	Long: "vol make packs files into a new or existing .vol file",
+var packCmd = &cobra.Command{
+	Use:  "pack volfile [file...]",
+	Long: "vol pack packs files into a new or existing .vol file",
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		volFN, fns := args[0], args[1:]
@@ -25,9 +25,9 @@ var makeCmd = &cobra.Command{
 		}
 
 		// Keep a table of filename-to-itemidx for the vol file, so we can error or overwrite on duplicate
-		filesSeen := make(map[string]int, len(v.Items))
+		filesInVol := make(map[string]int, len(v.Items))
 		for i, it := range v.Items {
-			filesSeen[filepath.Clean(it.Filename)] = i
+			filesInVol[filepath.Clean(it.Filename)] = i
 		}
 
 		// Expand fileglobs (for Windows, which does not do this in the shell...)
@@ -44,25 +44,36 @@ var makeCmd = &cobra.Command{
 		// Load and append all files as vol items (overwriting existing items where needed/allowed)
 		for _, fn := range fns {
 			fn = filepath.Clean(fn)
+
+			fnInPack := fn
+			if packStripPaths {
+				fnInPack = filepath.Base(fn)
+			}
+
 			if data, err := os.ReadFile(fn); err != nil {
 				return fmt.Errorf("could not read input file %s: %w", fn, err)
-			} else if existingIdx, overwrite := filesSeen[fn]; overwrite && !allowOverwrite {
-				return fmt.Errorf("prevented attempt to overwrite existing file %s in vol file %s; to allow, use --overwrite", fn, volFN)
+			} else if idxInVol, overwrite := filesInVol[fnInPack]; overwrite && !allowOverwrite {
+				return fmt.Errorf("file %s already exists in vol file %s; use --overwrite to overwrite", fnInPack, volFN)
 			} else {
-				if makeStripPaths {
-					fn = filepath.Base(fn)
-				}
-
 				newItem := vol.Item{
 					Compression: vol.None,
-					Filename:    fn,
+					Filename:    fnInPack,
 					Payload:     data,
 				}
 
+				msg := "packing " + fn
+				if fn != fnInPack {
+					msg += " (as " + fnInPack + ")"
+				}
 				if overwrite {
-					v.Items[existingIdx] = newItem
+					msg += " (overwrite)"
+				}
+				fmt.Println(msg)
+
+				if overwrite {
+					v.Items[idxInVol] = newItem
 				} else {
-					filesSeen[fn] = len(v.Items)
+					filesInVol[fnInPack] = len(v.Items)
 					v.Items = append(v.Items, newItem)
 				}
 			}
@@ -79,11 +90,11 @@ var makeCmd = &cobra.Command{
 }
 
 var (
-	makeStripPaths bool
+	packStripPaths bool
 	allowOverwrite bool
 )
 
 func init() {
-	makeCmd.Flags().BoolVar(&makeStripPaths, "strip-paths", false, "remove file paths when packing files into the vol; keep only filenames")
-	makeCmd.Flags().BoolVar(&allowOverwrite, "overwrite", false, "allow overwriting files in an existing vol; if absent, error on attempted overwrite")
+	packCmd.Flags().BoolVar(&packStripPaths, "strip-paths", false, "remove file paths when packing files into the vol; keep only filenames")
+	packCmd.Flags().BoolVar(&allowOverwrite, "overwrite", false, "allow overwriting files when packing into an existing vol; if absent, error on attempted overwrite")
 }
