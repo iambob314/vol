@@ -33,16 +33,23 @@ var dumpCmd = &cobra.Command{
 				continue
 			}
 
-			fmt.Printf("*** %s ***\n", fn)
+			content := item.Payload
 			switch item.Compression {
 			case vol.None:
-				fmt.Printf("%s", item.Payload)
+				// content is already correct
+			default:
+				content = []byte(fmt.Sprintf("(content is %s compressed; decompression unsupported at this time)", item.Compression))
+			}
+
+			if dumpFlags.Raw {
+				fmt.Printf("*** %s ***\n", fn)
+			}
+			_, _ = os.Stdout.Write(content)
+			if dumpFlags.Raw {
 				if l := len(item.Payload); l == 0 || (item.Payload[l-1] != '\r' && item.Payload[l-1] != '\n') {
 					fmt.Println()
 					fmt.Println("(no newline at end of file)")
 				}
-			default:
-				fmt.Printf("(content is compressed; decompression unsupported at this time)\n")
 			}
 		}
 
@@ -50,4 +57,10 @@ var dumpCmd = &cobra.Command{
 	},
 }
 
-func init() {}
+var dumpFlags struct {
+	Raw bool
+}
+
+func init() {
+	dumpCmd.Flags().BoolVar(&dumpFlags.Raw, "raw", false, "dump file content only and exactly (after decompression);\ndo not print filenames, 'no newline at end of file',\nor separators between content of multiple files")
+}

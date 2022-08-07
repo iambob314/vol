@@ -48,7 +48,7 @@ var unpackCmd = &cobra.Command{
 			}
 
 			fn := fnInVol
-			if unpackStripPaths {
+			if unpackFlags.StripPaths {
 				fn = filepath.Base(fn)
 				if fn == "." || fn == "/" {
 					fmt.Println("skipping empty filename")
@@ -80,8 +80,10 @@ var unpackCmd = &cobra.Command{
 	},
 }
 
-var unpackStripPaths bool
+var unpackFlags struct {
+	StripPaths bool
+}
 
 func init() {
-	unpackCmd.Flags().BoolVar(&unpackStripPaths, "strip-paths", false, "ignore file paths in the vol; unpack with no subdirectories")
+	unpackCmd.Flags().BoolVar(&unpackFlags.StripPaths, "strip-paths", false, "ignore file paths in the vol; unpack with no subdirectories")
 }
