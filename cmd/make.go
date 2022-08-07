@@ -5,7 +5,7 @@ import (
 	"github.com/iambob314/vol"
 	"github.com/spf13/cobra"
 	"os"
-	"path"
+	"path/filepath"
 )
 
 var makeCmd = &cobra.Command{
@@ -27,18 +27,30 @@ var makeCmd = &cobra.Command{
 		// Keep a table of filename-to-itemidx for the vol file, so we can error or overwrite on duplicate
 		filesSeen := make(map[string]int, len(v.Items))
 		for i, it := range v.Items {
-			filesSeen[path.Clean(it.Filename)] = i
+			filesSeen[filepath.Clean(it.Filename)] = i
 		}
 
+		// Expand fileglobs (for Windows, which does not do this in the shell...)
+		var expandedFNs []string
 		for _, fn := range fns {
-			fn = path.Clean(fn)
+			if expanded, err := filepath.Glob(fn); err != nil {
+				return fmt.Errorf("invalid filename or glob pattern %s: %w", fn, err)
+			} else if expanded != nil {
+				expandedFNs = append(expandedFNs, expanded...)
+			}
+		}
+		fns = expandedFNs
+
+		// Load and append all files as vol items (overwriting existing items where needed/allowed)
+		for _, fn := range fns {
+			fn = filepath.Clean(fn)
 			if data, err := os.ReadFile(fn); err != nil {
 				return fmt.Errorf("could not read input file %s: %w", fn, err)
 			} else if existingIdx, overwrite := filesSeen[fn]; overwrite && !allowOverwrite {
 				return fmt.Errorf("prevented attempt to overwrite existing file %s in vol file %s; to allow, use --overwrite", fn, volFN)
 			} else {
 				if makeStripPaths {
-					fn = path.Base(fn)
+					fn = filepath.Base(fn)
 				}
 
 				newItem := vol.Item{
